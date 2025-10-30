@@ -1,0 +1,68 @@
+const API_BASE = ""; // relatif au serveur, puisque le front est servi par Express
+
+// Sélecteurs
+const codeInput = document.getElementById("premiumCode");
+const btnCheck = document.getElementById("btnCheckCode");
+const statusMsg = document.getElementById("statusMsg");
+
+// Token existant
+const savedToken = localStorage.getItem("premiumToken");
+if (savedToken) verifyToken(savedToken);
+
+// Vérification code
+btnCheck.addEventListener("click", async () => {
+  const code = codeInput.value.trim();
+  if (!code) return showStatus("❌ Entrez un code d’accès", true);
+
+  showStatus("⏳ Vérification du code...");
+
+  try {
+    const res = await fetch(`/codes/request-token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code })
+    });
+    const data = await res.json();
+    if (!data.success) return showStatus("❌ Code invalide ou expiré", true);
+
+    localStorage.setItem("premiumToken", data.token);
+    await verifyToken(data.token);
+  } catch (err) {
+    console.error(err);
+    showStatus("⚠️ Erreur de connexion au serveur", true);
+  }
+});
+
+// Vérification du token JWT
+async function verifyToken(token) {
+  try {
+    const res = await fetch(`/codes/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token })
+    });
+    const data = await res.json();
+    if (!data.valid) {
+      localStorage.removeItem("premiumToken");
+      return showStatus("❌ Code expiré ou invalide", true);
+    }
+
+    showStatus(`✅ Accès Premium actif jusqu’au ${formatDate(data.valid_until)}`);
+    document.getElementById("categoryButtons").style.display = "flex";
+
+  } catch (err) {
+    console.error(err);
+    showStatus("⚠️ Erreur lors de la vérification du code", true);
+  }
+}
+
+function formatDate(iso) {
+  if (!iso) return "∞";
+  return new Date(iso).toLocaleString();
+}
+
+function showStatus(msg, isError = false) {
+  statusMsg.textContent = msg;
+  statusMsg.style.color = isError ? "red" : "green";
+}
+

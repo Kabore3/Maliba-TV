@@ -1,0 +1,161 @@
+// server.js
+const express = require('express');
+const fs = require('fs').promises;
+const path = require('path');
+const crypto = require('crypto');
+
+const DATA_FILE = path.resolve(__dirname, 'codes.json');
+const PORT = process.env.PORT || 3000;
+const app = express();
+app.use(express.json());
+
+// ---------- helpers ----------
+async function loadCodes() {
+  try {
+    const txt = await fs.readFile(DATA_FILE, 'utf8');
+    const arr = JSON.parse(txt);
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) {
+    if (e.code === 'ENOENT') return [];
+    throw e;
+  }
+}
+
+async function saveCodes(codes) {
+  await fs.writeFile(DATA_FILE, JSON.stringify(codes, null, 2), 'utf8');
+}
+
+// parse duration strings like "1h", "30m", "15s", "2d"
+function parseDurationToMs(s) {
+  if (!s) return null;
+  const m = /^(\d+)(s|m|h|d)$/.exec(String(s).trim());
+  if (!m) return null;
+  const value = Number(m[1]);
+  const unit = m[2];
+  const multipliers = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
+  return value * multipliers[unit];
+}
+
+function isoNowPlus(ms) {
+  return new Date(Date.now() + ms).toISOString();
+}
+
+// generate random code: e.g. ESSAI1H or 8-char alnum
+function generateRandomCode({ length = 8, prefix = '' } = {}) {
+  // use base36 of random bytes for alphanumeric (lowercase) then uppercase
+  const bytes = crypto.randomBytes(Math.ceil(length * 0.6));
+  let code = bytes.toString('base36').replace(/[^a-z0-9]/g, '').slice(0, length).toUpperCase();
+  if (code.length < length) {
+    // fallback pad with random hex
+    code += crypto.randomBytes(length - code.length).toString('hex').toUpperCase().slice(0, length - code.length);
+v  }
+  return prefix + code;
+}
+
+// remove expired codes in memory and save
+async function cleanupExpired() {
+  const codes = await loadCodes();
+  const now = new Date().toISOString();
+  const filtered = codes.filter(c => !c.valid_until || c.valid_until > now);
+  if (filtered.length !== codes.length) {
+    await saveCodes(filtered);
+    console.log('Cleaned up expired codes:', codes.length - filtered.length);
+  }
+  return filtered;
+}
+
+// ensure uniqueness: regenerates until unique (very unlikely collision)
+async function uniqueCode({ length, prefix }) {
+  const codes = await loadCodes();
+  const set = new Set(codes.map(c => c.code));
+  let tries = 0;
+  while (tries < 10_000) {
+    const candidate = generateRandomCode({ length, prefix });
+    if (!set.has(candidate)) return candidate;
+    tries++;
+  }
+  throw new Error('Impossible de générer un code unique après beaucoup d\'essais');
+}
+
+// ---------- endpoints ----------
+
+// create one or many codes
+// body example single:
+// { "count":1, "length":8, "prefix":"ESSAI", "ttl":"1h" }
+// will create `count` codes
+app.post('/codes', async (req, res) => {
+  try {
+    const { count = 1, length = 8, prefix = '', ttl = '1h' } = req.body || {};
+    const ms = parseDurationToMs(ttl) || parseDurationToMs('1h');
+    const valid_until = isoNowPlus(ms);
+    const codes = await loadCodes();
+    const created = [];
+
+    for (let i = 0; i < count; i++) {
+      const code = await uniqueCode({ length, prefix });
+      const entry = { code, valid_until };
+      codes.push(entry);
+      created.push(entry);
+    }
+
+    await saveCodes(codes);
+    res.json({ success: true, created });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// verify a code
+// POST /codes/verify { "code":"ESSAI1H" }
+app.post('/codes/verify', async (req, res) => {
+  try {
+    const { code } = req.body || {};
+    if (!code) return res.status(400).json({ valid: false, reason: 'no_code' });
+
+    const codes = await loadCodes();
+    const found = codes.find(c => c.code === String(code));
+    if (!found) return res.json({ valid: false, reason: 'not_found' });
+
+    const now = new Date().toISOString();
+    if (found.valid_until && found.valid_until <= now) {
+      return res.json({ valid: false, reason: 'expired', valid_until: found.valid_until });
+    }
+
+    // optionally: consume the code (single-use). If you want single-use, uncomment:
+    // const remaining = codes.filter(c => c.code !== found.code);
+    // await saveCodes(remaining);
+
+    return res.json({ valid: true, valid_until: found.valid_until });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ valid: false, error: err.message });
+  }
+});
+
+// list codes (admin) - keep simple, no auth here (add auth in prod)
+app.get('/codes', async (req, res) => {
+  const codes = await cleanupExpired();
+  res.json({ codes });
+});
+
+// delete a code
+app.delete('/codes/:code', async (req, res) => {
+  const codes = await loadCodes();
+  const filtered = codes.filter(c => c.code !== req.params.code);
+  await saveCodes(filtered);
+  res.json({ success: true });
+});
+
+// basic health
+app.get('/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+
+// startup cleanup and periodic cleanup
+(async () => {
+  await fs.mkdir(path.dirname(DATA_FILE), { recursive: true }).catch(()=>{});
+  await cleanupExpired();
+  // every 5 minutes
+  setInterval(cleanupExpired, 5 * 60 * 1000);
+  app.listen(PORT, () => console.log(`MALIBA TV codes server listening on port ${PORT}`));
+})();
+

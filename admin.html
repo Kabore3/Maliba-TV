@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Admin MALIBA TV</title>
+<style>
+body { font-family: Arial; padding: 20px; background: #0A0AFF; color: white; }
+input, select, button { padding: 5px 10px; margin: 5px 0; border-radius: 6px; border: none; font-weight: bold; }
+button { cursor: pointer; }
+.hidden { display: none; }
+hr { margin: 20px 0; border: 1px solid #fff; }
+pre { background: #000; padding: 10px; border-radius: 6px; max-height: 300px; overflow: auto; }
+#errorMsg { color: yellow; margin: 5px 0; }
+</style>
+</head>
+<body>
+<h1>Admin MALIBA TV</h1>
+
+<!-- Section de connexion : toujours visible -->
+<div id="loginSection">
+  <p>Mot de passe admin :</p>
+  <input type="password" id="adminPassInput" placeholder="Entrez le mot de passe">
+  <button id="loginBtn">Se connecter</button>
+  <div id="loginMsg"></div>
+</div>
+
+<!-- Dashboard admin : caché tant que pas connecté -->
+<div id="adminDashboard" class="hidden">
+  <h3>Générer des codes temporaires</h3>
+  <p>Durée (ex : 1h, 30m) :</p>
+  <input type="text" id="ttlInput" placeholder="1h">
+  <p>Nombre de codes :</p>
+  <input type="number" id="countInput" value="1" min="1" max="100">
+  <p>Longueur du code :</p>
+  <input type="number" id="lengthInput" value="8" min="4" max="32">
+  <p>Type de caractères :</p>
+  <select id="charsetSelect">
+    <option value="alphanum">Lettres + Chiffres</option>
+    <option value="alpha">Lettres seulement</option>
+    <option value="numeric">Chiffres seulement</option>
+  </select>
+  <button id="generateBtn">Générer</button>
+  <div id="generateMsg"></div>
+
+  <hr>
+
+  <h3>Révoquer un code</h3>
+  <input type="text" id="revokeInput" placeholder="Code à révoquer">
+  <button id="revokeBtn">Révoquer</button>
+  <div id="revokeMsg"></div>
+
+  <hr>
+  <button id="exportBtn">Exporter CSV</button>
+  <button id="loadCodesBtn">Charger la liste des codes</button>
+  <pre id="codesList"></pre>
+
+  <hr>
+  <button id="logoutBtn">Se déconnecter</button>
+</div>
+
+<script>
+let adminToken = localStorage.getItem("adminToken") || null;
+
+// --- Affiche le dashboard seulement si admin connecté ---
+function setLoggedInState() {
+  document.getElementById("adminDashboard").classList.remove("hidden");
+  document.getElementById("loginMsg").textContent = "✅ Connecté";
+}
+
+function setLoggedOutState() {
+  localStorage.removeItem("adminToken");
+  adminToken = null;
+  document.getElementById("adminDashboard").classList.add("hidden");
+  document.getElementById("loginMsg").textContent = "";
+}
+
+// --- Connexion admin ---
+document.getElementById("loginBtn").addEventListener("click", async () => {
+  const password = document.getElementById("adminPassInput").value.trim();
+  const msg = document.getElementById("loginMsg");
+  if (!password) { msg.textContent = "❌ Entrez le mot de passe"; return; }
+
+  try {
+    const res = await fetch("http://localhost:3000/admin/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      adminToken = data.token;
+      localStorage.setItem("adminToken", adminToken);
+      setLoggedInState();
+      document.getElementById("loadCodesBtn").click();
+    } else {
+      msg.textContent = "❌ " + (data.error || "Mot de passe incorrect");
+    }
+  } catch {
+    msg.textContent = "❌ Erreur de connexion au serveur";
+  }
+});
+
+// --- Déconnexion ---
+document.getElementById("logoutBtn").addEventListener("click", () => {
+  setLoggedOutState();
+});
+
+// --- Génération, révocation, export, liste codes ---
+// identique à ton ancien admin.js, juste protégé par adminToken
+document.getElementById("generateBtn").addEventListener("click", async () => {
+  if (!adminToken) return alert("Connectez-vous d'abord");
+  const ttl = document.getElementById("ttlInput").value.trim() || "1h";
+  let count = parseInt(document.getElementById("countInput").value) || 1;
+  count = Math.min(Math.max(count, 1), 100);
+  let length = parseInt(document.getElementById("lengthInput").value) || 8;
+  length = Math.min(Math.max(length, 4), 32);
+
+  try {
+    const res = await fetch("http://localhost:3000/codes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ ttl, count, length })
+    });
+    const data = await res.json();
+    document.getElementById("generateMsg").textContent = data.success
+      ? "✅ Codes générés : " + data.created.map(c => c.code).join(", ")
+      : "❌ Erreur génération";
+    document.getElementById("loadCodesBtn").click();
+  } catch {
+    document.getElementById("generateMsg").textContent = "❌ Erreur serveur";
+  }
+});
+
+document.getElementById("revokeBtn").addEventListener("click", async () => {
+  if (!adminToken) return alert("Connectez-vous d'abord");
+  const code = document.getElementById("revokeInput").value.trim();
+  if (!code) return alert("Entrez un code à révoquer");
+
+  try {
+    const res = await fetch("http://localhost:3000/codes/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ code })
+    });
+    const data = await res.json();
+    document.getElementById("revokeMsg").textContent = data.success ? "✅ Code révoqué" : "❌ Code non trouvé";
+    document.getElementById("loadCodesBtn").click();
+  } catch {
+    document.getElementById("revokeMsg").textContent = "❌ Erreur serveur";
+  }
+});
+
+document.getElementById("exportBtn").addEventListener("click", () => {
+  if (!adminToken) return alert("Connectez-vous d'abord");
+  window.open(`http://localhost:3000/codes/export?token=${adminToken}`, "_blank");
+});
+
+document.getElementById("loadCodesBtn").addEventListener("click", async () => {
+  if (!adminToken) return alert("Connectez-vous d'abord");
+  try {
+    const res = await fetch("http://localhost:3000/codes", { headers: { "x-admin-token": adminToken } });
+    const data = await res.json();
+    document.getElementById("codesList").textContent = res.ok
+      ? data.codes.map(c => `${c.code} (${c.valid_until || "permanent"})`).join("\n")
+      : "❌ Accès refusé";
+    if (!res.ok) setLoggedOutState();
+  } catch {
+    document.getElementById("codesList").textContent = "❌ Erreur serveur";
+  }
+});
+
+// --- Si token existant, reconnecte mais laisse champ mot de passe visible ---
+if (adminToken) setLoggedInState();
+</script>
+</body>
+</html>
+

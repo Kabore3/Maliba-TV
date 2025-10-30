@@ -1,0 +1,51 @@
+body {
+  font-family: Arial, sans-serif;
+  background: #0f2027;
+  background: linear-gradient(to right, #2c5364, #203a43, #0f2027);
+  color: white;
+  text-align: center;
+  padding: 40px;
+}
+
+.card {
+  background: rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 30px;
+  width: 300px;
+  margin: auto;
+  box-shadow: 0 0 10px rgba(0,0,0,0.5);
+}
+
+input {
+  width: 80%;
+  padding: 10px;
+  border: none;
+  border-radius: 5px;
+  margin: 10px 0;
+}
+
+button {
+  padding: 10px 15px;
+  background-color: #1db954;
+  border: none;
+  color: white;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #1ed760;
+}
+
+.hidden {
+  display: none;
+}
+
+.tabs {
+  margin: 20px 0;
+}
+
+#listeChaines {
+  margin-top: 20px;
+}
+

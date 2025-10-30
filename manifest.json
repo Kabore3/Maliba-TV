@@ -1,0 +1,16 @@
+{
+  "name": "MALIBA TV",
+  "short_name": "MALIBA TV",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0A0AFF",
+  "theme_color": "#0A0AFF",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}
+
